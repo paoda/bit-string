@@ -6,6 +6,7 @@ A library to check and extract values from integers based on a "bit string". Pri
 
 ```zig
 const std = @import("std");
+
 test "doc test" {
     const value: u8 = 0b10001011;
     try std.testing.expectEqual(true, match("10001011", value));

@@ -3,6 +3,7 @@
 //! ## Example
 //! ```zig
 //! const std = @import("std");
+//!
 //! test "doc test" {
 //!     const value: u8 = 0b10001011;
 //!
