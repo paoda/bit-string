@@ -121,8 +121,6 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
     };
     comptime verify(ValT, bit_string);
 
-    std.debug.assert(match(bit_string, value)); // prevents branchless impl in ReleaseSafe
-
     var ret: ReturnT = undefined;
 
     inline for (@typeInfo(ReturnT).Struct.fields) |field| {
@@ -146,6 +144,11 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
     }
 
     return ret;
+}
+
+pub fn matchExtract(comptime bit_string: []const u8, value: anytype) ?Bitfield(bit_string) {
+    if (!match(bit_string, value)) return null;
+    return extract(bit_string, value);
 }
 
 test "extract" {
