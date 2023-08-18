@@ -183,6 +183,29 @@ test "extract" {
         try std.testing.expectEqual(@as(u4, 0b1110), ret.a);
         try std.testing.expectEqual(@as(u4, 0b1011), ret.b);
     }
+    {
+        const ret = extract("--------ddddrrrr", @as(u16, 0b0000_0010_1011_0110));
+        try std.testing.expectEqual(@as(u4, 0b1011), ret.d);
+        try std.testing.expectEqual(@as(u4, 0b0110), ret.r);
+    }
+    {
+        const ret = extract("--------", @as(u8, 0b00000000));
+        const T = @TypeOf(ret);
+
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+    }
+    {
+        const ret = extract("00000000", @as(u8, 0b00000000));
+        const T = @TypeOf(ret);
+
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+    }
+    {
+        const ret = extract("0-0-0-0-", @as(u8, 0b01010101));
+        const T = @TypeOf(ret);
+
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+    }
 }
 
 /// Parses a bit string and reifies a struct that will contain fields that correspond to the variables present in the bit string.
@@ -213,13 +236,13 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
         var tmp: [field_len]StructField = undefined;
 
         const Tmp = struct { bits: u8 = 0, char: ?u8 = null };
-        var things: [field_len]Tmp = [_]Tmp{.{}} ** field_len;
+        var things: [field_len]Tmp = [_]Tmp{.{}} ** field_len; // TODO: rename this lol
 
         for (bit_string) |char| {
             switch (char) {
                 'a'...'z' => |c| {
                     const bit_in_set = @as(u26, 1) << @intCast(c - 'a');
-                    const pos = @ctz(alphabet_set & ~(bit_in_set - 1));
+                    const pos = @popCount(alphabet_set & ~(bit_in_set - 1)) - 1; // TODO: investigate this off-by-one
 
                     things[pos].bits += 1;
                     things[pos].char = c;
