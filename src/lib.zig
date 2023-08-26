@@ -53,6 +53,8 @@ const Log2Int = std.math.Log2Int;
 /// match("1ab0", @as(u4, 0b1010)) // true
 /// ```
 pub fn match(comptime bit_string: []const u8, value: anytype) bool {
+    @setEvalBranchQuota(std.math.maxInt(u32)); // FIXME: bad practice
+
     const ValT = @TypeOf(value);
     comptime verify(ValT, bit_string);
 
@@ -139,7 +141,7 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
             //
             // we're confident in this because it's guaranteed to be the same bit_string,
             // and it's the same linear search. If you're reading this double check that this is still the case lol
-            break :blk @truncate(if (bmi2) pext.hardware(u32, value, masked_val) else pext.software(u32, value, masked_val));
+            break :blk @truncate(if (bmi2 and !@inComptime()) pext.hardware(u32, value, masked_val) else pext.software(u32, value, masked_val));
         };
     }
 
