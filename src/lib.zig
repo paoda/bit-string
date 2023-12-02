@@ -5,36 +5,37 @@
 //! const std = @import("std");
 //!
 //! test "doc test" {
-//!     const value: u8 = 0b10001011;
+//!    const value: u8 = 0b10001011;
 //!
-//!     try std.testing.expectEqual(true, match("10001011", value));
-//!     try std.testing.expectEqual(false, match("11111011", value));
-//!     try std.testing.expectEqual(true, match("1---1011", value));
+//!    try std.testing.expectEqual(true, match("1000_1011", value));
+//!    try std.testing.expectEqual(false, match("11111011", value));
+//!    try std.testing.expectEqual(true, match("1---1011", value));
 //!
-//!     {
-//!         const ret = extract("1000aaaa", value);
-//!         try std.testing.expectEqual(@as(u4, 0b1011), ret.a);
-//!     }
-//!     {
-//!         const ret = extract("1aaa1aaa", value);
-//!         try std.testing.expectEqual(@as(u6, 0b000011), ret.a);
-//!     }
-//!     {
-//!         const ret = extract("1---abcd", value);
-//!         try std.testing.expectEqual(@as(u3, 0b1), ret.a);
-//!         try std.testing.expectEqual(@as(u3, 0b0), ret.b);
-//!         try std.testing.expectEqual(@as(u3, 0b1), ret.c);
-//!         try std.testing.expectEqual(@as(u3, 0b1), ret.d);
-//!     }
+//!    {
+//!        const ret = extract("1000aaaa", value);
+//!        try std.testing.expectEqual(@as(u4, 0b1011), ret.a);
+//!    }
+//!    {
+//!        const ret = extract("1aaa1aaa", value);
+//!        try std.testing.expectEqual(@as(u6, 0b000011), ret.a);
+//!    }
+//!    {
+//!        const ret = extract("1---abcd", value);
+//!        try std.testing.expectEqual(@as(u3, 0b1), ret.a);
+//!        try std.testing.expectEqual(@as(u3, 0b0), ret.b);
+//!        try std.testing.expectEqual(@as(u3, 0b1), ret.c);
+//!        try std.testing.expectEqual(@as(u3, 0b1), ret.d);
+//!    }
 //! }
 //! ```
 //! ## Syntax
 //! |  Token  |  Meaning  | Description
 //! | ------- | --------- | -----------
-//! | `0`     | Unset bit | In the equivalent position, the value's bit must be set.
+//! | `0`     | Clear bit | In the equivalent position, the value's bit must be cleared.
 //! | `1`     | Set bit   | In the equivalent position, the value's bit must be set.
 //! | `a..=z` | Variable  | Given the 4-bit bit string, `"1aa0"`, the value `0b1010` would produce the variable `a` with the value `0b01`
 //! | `-`     | Ignored   | In the equivalent position, the value's bit does not matter.
+//! | `_`     | Ignored*  | Underscores are completely ignored during parsing, use to make bit strings easier to read e.g. `1111_1111`
 //!
 //! ## Notes
 //! - This library does the majority of it's work at `comptime`. Due to this, you cannot create strings to match against at runtime.
@@ -49,8 +50,10 @@ const Log2Int = std.math.Log2Int;
 /// ```zig
 /// match("1100", @as(u4, 0b1100)) // true
 /// match("1100", @as(u4, 0b1110)) // false
+///
 /// match("1--0", @as(u4, 0b1010)) // true
 /// match("1ab0", @as(u4, 0b1010)) // true
+/// match("11_00", @as(u4, 0b1100)) // true
 /// ```
 pub fn match(comptime bit_string: []const u8, value: anytype) bool {
     @setEvalBranchQuota(std.math.maxInt(u32)); // FIXME: bad practice
@@ -63,12 +66,14 @@ pub fn match(comptime bit_string: []const u8, value: anytype) bool {
 
         var set: ValT = 0;
         var clr: ValT = 0;
+        var offset = 0;
 
-        // FIXME: I linear search bit_string 4 separate times. Consider doing a single search and compromizing on memory + stateless API? (imagine a "regex compile"-like API)
+        // FIXME: I linear search like this 5 times across the entie lib. Consider structuring this like a regex lib (compiling a match)
         for (bit_string, 0..) |char, i| {
             switch (char) {
-                '0' => clr |= @as(ValT, 1) << @intCast(bit_count - 1 - i),
-                '1' => set |= @as(ValT, 1) << @intCast(bit_count - 1 - i),
+                '0' => clr |= @as(ValT, 1) << @intCast((bit_count - 1 - (i - offset))),
+                '1' => set |= @as(ValT, 1) << @intCast((bit_count - 1 - (i - offset))),
+                '_' => offset += 1,
                 'a'...'z', '-' => continue,
                 else => @compileError("'" ++ [_]u8{char} ++ "' was unexpected when parsing bitstring"),
             }
@@ -85,10 +90,12 @@ pub fn match(comptime bit_string: []const u8, value: anytype) bool {
 
 test "match" {
     // doc tests
-    try std.testing.expectEqual(true, match("1100", @as(u4, 0b1100))); // true
-    try std.testing.expectEqual(false, match("1100", @as(u4, 0b1110))); // false
-    try std.testing.expectEqual(true, match("1--0", @as(u4, 0b1010))); // true
-    try std.testing.expectEqual(true, match("1ab0", @as(u4, 0b1010))); // true
+    try std.testing.expectEqual(true, match("1100", @as(u4, 0b1100)));
+    try std.testing.expectEqual(false, match("1100", @as(u4, 0b1110)));
+
+    try std.testing.expectEqual(true, match("1--0", @as(u4, 0b1010)));
+    try std.testing.expectEqual(true, match("1ab0", @as(u4, 0b1010)));
+    try std.testing.expectEqual(true, match("11_00", @as(u4, 0b1100)));
 
     // other tests
     try std.testing.expectEqual(true, match("11111111", @as(u8, 0b11111111)));
@@ -98,6 +105,10 @@ test "match" {
     try std.testing.expectEqual(true, match("aaa---11", @as(u8, 0b01011111)));
     try std.testing.expectEqual(true, match("1a0b1c0d", @as(u8, 0b10011101)));
     try std.testing.expectEqual(false, match("aaa---11", @as(u8, 0b01011110)));
+
+    try std.testing.expectEqual(true, match("1111_1111", @as(u8, 0b11111111)));
+    try std.testing.expectEqual(true, match("________11111111", @as(u8, 0b11111111)));
+    try std.testing.expectEqual(true, match("11111111________", @as(u8, 0b11111111)));
 }
 
 /// Extracts the variables (defined in the bit string) from a value.
@@ -108,6 +119,7 @@ test "match" {
 /// const ret = extract("abcd", @as(u4, 0b1001)); // ret.a == 0b1, ret.b == 0b0, ret.c == 0b0, ret.d == 0b1
 /// const ret = extract("a0ab", @as(u4, 0b1001)); // ret.a == 0b10, ret.b == 0b1
 /// const ret = extract("-a-a", @as(u4, 0b1001)); // ret.a == 0b01
+/// const ret = extract("aa_aa", @as(u4, 0b1001)); // ret.a == 0b1001
 /// ```
 ///
 /// Note: In Debug and ReleaseSafe builds, there's a runtime assert that
@@ -128,13 +140,21 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
     inline for (@typeInfo(ReturnT).Struct.fields) |field| {
         @field(ret, field.name) = blk: {
             var masked_val: ValT = 0;
+            var offset: usize = 0; // FIXME(URGENT): this whole block should be happening at comptime...
 
             for (bit_string, 0..) |char, i| {
-                const rev = @typeInfo(ValT).Int.bits - 1 - i;
-                if (char == field.name[0]) masked_val |= @as(ValT, 1) << @intCast(rev); // no penalty
+                const rev = @typeInfo(ValT).Int.bits - 1 - (i - offset);
+
+                switch (char) {
+                    '_' => offset += 1,
+                    else => if (char == field.name[0]) {
+                        masked_val |= @as(ValT, 1) << @intCast(rev); // no penalty
+                    },
+                }
             }
 
             // TODO: decide at compile time if we're calling the 32-bit or 64-bit version of `PEXT`
+            // TODO: rewrite this invariant thing to account for underscores
 
             // invariant: the bit count in the field we're writing to and the
             // # of bits we happened to find in this linear search are identical
@@ -174,6 +194,10 @@ test "extract" {
     {
         const ret = extract("-a-a", @as(u4, 0b1001));
         try std.testing.expectEqual(@as(u2, 0b01), ret.a);
+    }
+    {
+        const ret = extract("aa_aa", @as(u4, 0b1001));
+        try std.testing.expectEqual(@as(u4, 0b1001), ret.a);
     }
 
     // other tests
@@ -252,8 +276,8 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
                     things[pos].bits += 1;
                     things[pos].char = c;
                 },
-                '1', '0', '-' => continue,
-                else => @compileError("error when parsing bitset string"),
+                '1', '0', '-', '_' => continue,
+                else => @compileError("unexpected char '" ++ [_]u8{char} ++ "' when parsing bit string"),
             }
         }
 
@@ -289,7 +313,13 @@ fn verify(comptime T: type, comptime bit_string: []const u8) void {
     std.debug.assert(info != .ComptimeInt);
     std.debug.assert(info.Int.signedness == .unsigned);
     std.debug.assert(info.Int.bits <= 64); // x86 PEXT u32 and u64 operands only
-    std.debug.assert(bit_string.len == info.Int.bits); // TODO: Support Underscores?
+
+    var underscore_count = 0;
+    for (bit_string) |c| {
+        if (c == '_') underscore_count += 1;
+    }
+
+    std.debug.assert((bit_string.len - underscore_count) == info.Int.bits);
 }
 
 const pext = struct {
@@ -374,7 +404,7 @@ const pext = struct {
 test "doc test" {
     const value: u8 = 0b10001011;
 
-    try std.testing.expectEqual(true, match("10001011", value));
+    try std.testing.expectEqual(true, match("1000_1011", value));
     try std.testing.expectEqual(false, match("11111011", value));
     try std.testing.expectEqual(true, match("1---1011", value));
 
