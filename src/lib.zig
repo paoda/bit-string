@@ -326,62 +326,36 @@ const pext = struct {
         };
     }
 
-    fn sw(comptime T: type, value: T, mask: T) T {
-        // TODO: rewrite in idiomatic zig / understand the algorithm and write an original implementation
-        // code source: https://stackoverflow.com/questions/41720249/detecting-matching-bits-in-c
-        // note: will be replaced in the future by  https://github.com/ziglang/zig/issues/14995 (hopefully?)
+    inline fn sw(comptime T: type, value: T, mask: T) T {
+        // FIXME: will be replaced in the future by  https://github.com/ziglang/zig/issues/14995 (hopefully?)
 
         return switch (T) {
-            u32 => {
-                var _value: T = value;
-                var _mask: T = mask;
+            u32, u64 => {
+                // code source: https://stackoverflow.com/questions/41720249/detecting-matching-bits-in-c
+                // TODO: rewrite more in generic/idiomatic zig
+                const log2_bits = @typeInfo(Log2Int(T)).Int.bits;
 
-                _value &= _mask;
-                var mk: T = ~_mask << 1;
-                var mp: T = undefined;
-                var mv: T = undefined;
-                var t: T = undefined;
+                var val: T = value & mask; // immediately clear irrelevant bits
+                var msk: T = mask;
 
-                inline for (0..@typeInfo(Log2Int(T)).Int.bits) |i| {
-                    mp = mk ^ (mk << 1); // parallel suffix
-                    mp = mp ^ (mp << 2);
-                    mp = mp ^ (mp << 4);
-                    mp = mp ^ (mp << 8);
-                    mp = mp ^ (mp << 16);
-                    mv = (mp & _mask); // bits to move
-                    _mask = ((_mask ^ mv) | (mv >> (1 << i))); // compress _mask
-                    t = (_value & mv);
-                    _value = ((_value ^ t) | (t >> (1 << i))); // compress _value
+                var mk: T = ~msk << 1; // count 0s to the right
+
+                inline for (0..log2_bits) |i| {
+                    var mp: T = mk ^ (mk << 1);
+                    inline for (1..log2_bits) |j| {
+                        mp = mp ^ (mp << (1 << j)); // parallel suffix
+                    }
+
+                    const mv = (mp & msk); // bits to move
+                    msk = ((msk ^ mv) | (mv >> (1 << i))); // compress mask
+
+                    const t = (val & mv);
+                    val = ((val ^ t) | (t >> (1 << i))); // compress val
+
                     mk &= ~mp;
                 }
 
-                return _value;
-            },
-            u64 => {
-                var _value: T = value;
-                var _mask: T = mask;
-
-                _value &= _mask;
-                var mk: T = ~_mask << 1;
-                var mp: T = undefined;
-                var mv: T = undefined;
-                var t: T = undefined;
-
-                inline for (0..@typeInfo(Log2Int(T)).Int.bits) |i| {
-                    mp = mk ^ (mk << 1); // parallel suffix
-                    mp = mp ^ (mp << 2);
-                    mp = mp ^ (mp << 4);
-                    mp = mp ^ (mp << 8);
-                    mp = mp ^ (mp << 16);
-                    mp = mp ^ (mp << 32);
-                    mv = (mp & _mask); // bits to move
-                    _mask = ((_mask ^ mv) | (mv >> (1 << i))); // compress _mask
-                    t = (_value & mv);
-                    _value = ((_value ^ t) | (t >> (1 << i))); // compress _value
-                    mk &= ~mp;
-                }
-
-                return _value;
+                return val;
             },
             else => @compileError("pext is sunsupported for " ++ @typeName(T) ++ "."),
         };
