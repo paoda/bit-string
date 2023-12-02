@@ -45,16 +45,6 @@ const std = @import("std");
 const Log2Int = std.math.Log2Int;
 
 /// Test to see if a value matches the provided bit-string
-///
-/// ### Example
-/// ```zig
-/// match("1100", @as(u4, 0b1100)) // true
-/// match("1100", @as(u4, 0b1110)) // false
-///
-/// match("1--0", @as(u4, 0b1010)) // true
-/// match("1ab0", @as(u4, 0b1010)) // true
-/// match("11_00", @as(u4, 0b1100)) // true
-/// ```
 pub fn match(comptime bit_string: []const u8, value: anytype) bool {
     @setEvalBranchQuota(std.math.maxInt(u32)); // FIXME: bad practice
 
@@ -88,7 +78,7 @@ pub fn match(comptime bit_string: []const u8, value: anytype) bool {
     return (value & set_mask) == set_mask and (~value & clr_mask) == clr_mask;
 }
 
-test "match" {
+test match {
     // doc tests
     try std.testing.expectEqual(true, match("1100", @as(u4, 0b1100)));
     try std.testing.expectEqual(false, match("1100", @as(u4, 0b1110)));
@@ -112,15 +102,6 @@ test "match" {
 }
 
 /// Extracts the variables (defined in the bit string) from a value.
-///
-/// ### Examples
-/// ```
-/// const ret = extract("aaaa", @as(u4, 0b1001)); // ret.a == 0b1001
-/// const ret = extract("abcd", @as(u4, 0b1001)); // ret.a == 0b1, ret.b == 0b0, ret.c == 0b0, ret.d == 0b1
-/// const ret = extract("a0ab", @as(u4, 0b1001)); // ret.a == 0b10, ret.b == 0b1
-/// const ret = extract("-a-a", @as(u4, 0b1001)); // ret.a == 0b01
-/// const ret = extract("aa_aa", @as(u4, 0b1001)); // ret.a == 0b1001
-/// ```
 ///
 /// Note: In Debug and ReleaseSafe builds, there's a runtime assert that
 /// ensures that the value matches against the bit string.
@@ -161,19 +142,14 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
             //
             // we're confident in this because it's guaranteed to be the same bit_string,
             // and it's the same linear search. If you're reading this double check that this is still the case lol
-            break :blk @truncate(if (bmi2 and !@inComptime()) pext.hardware(u32, value, masked_val) else pext.software(u32, value, masked_val));
+            break :blk @truncate(if (bmi2 and !@inComptime()) pext.hw(u32, value, masked_val) else pext.sw(u32, value, masked_val));
         };
     }
 
     return ret;
 }
 
-pub fn matchExtract(comptime bit_string: []const u8, value: anytype) ?Bitfield(bit_string) {
-    if (!match(bit_string, value)) return null;
-    return extract(bit_string, value);
-}
-
-test "extract" {
+test extract {
     // doc tests
     {
         const ret = extract("aaaa", @as(u4, 0b1001));
@@ -237,10 +213,12 @@ test "extract" {
     }
 }
 
+pub fn matchExtract(comptime bit_string: []const u8, value: anytype) ?Bitfield(bit_string) {
+    if (!match(bit_string, value)) return null;
+    return extract(bit_string, value);
+}
+
 /// Parses a bit string and reifies a struct that will contain fields that correspond to the variables present in the bit string.
-///
-///
-/// Note: If it weren't for the return type of `extract()`, this type would be a private implementation detail
 ///
 /// TODO: I will probably rename this type
 pub fn Bitfield(comptime bit_string: []const u8) type {
@@ -323,7 +301,7 @@ fn verify(comptime T: type, comptime bit_string: []const u8) void {
 }
 
 const pext = struct {
-    fn hardware(comptime T: type, value: T, mask: T) T {
+    fn hw(comptime T: type, value: T, mask: T) T {
         return switch (T) {
             u32 => asm ("pextl %[mask], %[value], %[ret]"
                 : [ret] "=r" (-> T),
@@ -340,7 +318,7 @@ const pext = struct {
     }
 
     // why we need this: https://github.com/ziglang/zig/issues/14995 (ideally compiler-rt implements this for us)
-    fn software(comptime T: type, value: T, mask: T) T {
+    fn sw(comptime T: type, value: T, mask: T) T {
         return switch (T) {
             u32 => {
                 // TODO: Looks (and is) like C code :pensive:
@@ -375,13 +353,13 @@ const pext = struct {
         };
     }
 
-    test "pext" {
+    test pext {
         const builtin = @import("builtin");
 
         switch (builtin.cpu.arch) {
             .x86_64 => if (std.Target.x86.featureSetHas(builtin.cpu.features, .bmi2)) {
-                try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.hardware(u32, 0x12345678, 0xFF00FFF0));
-                try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.hardware(u64, 0x12345678, 0xFF00FFF0));
+                try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.hw(u32, 0x12345678, 0xFF00FFF0));
+                try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.hw(u64, 0x12345678, 0xFF00FFF0));
 
                 // random tests
                 // TODO: when implemented, test 64-bit fallback `PEXT` as well
@@ -390,14 +368,14 @@ const pext = struct {
                     const value = rand_impl.random().int(u32);
                     const mask = rand_impl.random().int(u32);
 
-                    try std.testing.expectEqual(pext.hardware(u32, value, mask), pext.software(u32, value, mask));
+                    try std.testing.expectEqual(pext.hw(u32, value, mask), pext.sw(u32, value, mask));
                 }
             },
-            else => {},
+            else => return error.SkipZigTest,
         }
 
         // example values from: https://en.wikipedia.org/w/index.php?title=X86_Bit_manipulation_instruction_set&oldid=1170426748
-        try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.software(u32, 0x12345678, 0xFF00FFF0));
+        try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.sw(u32, 0x12345678, 0xFF00FFF0));
     }
 };
 
