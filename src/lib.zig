@@ -58,7 +58,7 @@ pub fn match(comptime bit_string: []const u8, value: anytype) bool {
         var clr: ValT = 0;
         var offset = 0;
 
-        // FIXME: I linear search like this 5 times across the entie lib. Consider structuring this like a regex lib (compiling a match)
+        // FIXME: I linear search like this 5 times across the entire lib. Consider structuring this like a regex lib (compiling a match)
         for (bit_string, 0..) |char, i| {
             switch (char) {
                 '0' => clr |= @as(ValT, 1) << @intCast((bit_count - 1 - (i - offset))),
@@ -99,6 +99,11 @@ test match {
     try std.testing.expectEqual(true, match("1111_1111", @as(u8, 0b11111111)));
     try std.testing.expectEqual(true, match("________11111111", @as(u8, 0b11111111)));
     try std.testing.expectEqual(true, match("11111111________", @as(u8, 0b11111111)));
+
+    try std.testing.expectEqual(true, match(
+        "11111111_11111111_11111111_11111111_11111111_11111111_11111111_11111111",
+        @as(u64, 0xFFFF_FFFF_FFFF_FFFF),
+    ));
 }
 
 /// Extracts the variables (defined in the bit string) from a value.
@@ -134,15 +139,10 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
                 }
             }
 
-            // TODO: decide at compile time if we're calling the 32-bit or 64-bit version of `PEXT`
-            // TODO: rewrite this invariant thing to account for underscores
+            const PextT = if (@typeInfo(ValT).Int.bits > 32) u64 else u32;
+            const use_hw = bmi2 and !@inComptime();
 
-            // invariant: the bit count in the field we're writing to and the
-            // # of bits we happened to find in this linear search are identical
-            //
-            // we're confident in this because it's guaranteed to be the same bit_string,
-            // and it's the same linear search. If you're reading this double check that this is still the case lol
-            break :blk @truncate(if (bmi2 and !@inComptime()) pext.hw(u32, value, masked_val) else pext.sw(u32, value, masked_val));
+            break :blk @truncate(if (use_hw) pext.hw(PextT, value, masked_val) else pext.sw(PextT, value, masked_val));
         };
     }
 
@@ -210,6 +210,18 @@ test extract {
         const T = @TypeOf(ret);
 
         try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+    }
+
+    {
+        const ret = extract(
+            "11111111_ssssssss_11111111_dddddddd_11111111_vvvvvvvv_11111111_xxxxxxxx",
+            @as(u64, 0xFF55_FF77_FF33_FF00),
+        );
+
+        try std.testing.expectEqual(@as(u8, 0x55), ret.s);
+        try std.testing.expectEqual(@as(u8, 0x77), ret.d);
+        try std.testing.expectEqual(@as(u8, 0x33), ret.v);
+        try std.testing.expectEqual(@as(u8, 0x00), ret.x);
     }
 }
 
@@ -285,9 +297,6 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
 fn verify(comptime T: type, comptime bit_string: []const u8) void {
     const info = @typeInfo(T);
 
-    // FIXME: remove the need for this
-    if (info.Int.bits > 32) @compileError("TODO: 64-bit `PEXT` software implementation");
-
     std.debug.assert(info != .ComptimeInt);
     std.debug.assert(info.Int.signedness == .unsigned);
     std.debug.assert(info.Int.bits <= 64); // x86 PEXT u32 and u64 operands only
@@ -317,13 +326,13 @@ const pext = struct {
         };
     }
 
-    // why we need this: https://github.com/ziglang/zig/issues/14995 (ideally compiler-rt implements this for us)
     fn sw(comptime T: type, value: T, mask: T) T {
+        // TODO: rewrite in idiomatic zig / understand the algorithm and write an original implementation
+        // code source: https://stackoverflow.com/questions/41720249/detecting-matching-bits-in-c
+        // note: will be replaced in the future by  https://github.com/ziglang/zig/issues/14995 (hopefully?)
+
         return switch (T) {
             u32 => {
-                // TODO: Looks (and is) like C code :pensive:
-                // code source: https://stackoverflow.com/questions/41720249/detecting-matching-bits-in-c
-
                 var _value: T = value;
                 var _mask: T = mask;
 
@@ -333,7 +342,7 @@ const pext = struct {
                 var mv: T = undefined;
                 var t: T = undefined;
 
-                inline for (0..@typeInfo(u5).Int.bits) |i| {
+                inline for (0..@typeInfo(Log2Int(T)).Int.bits) |i| {
                     mp = mk ^ (mk << 1); // parallel suffix
                     mp = mp ^ (mp << 2);
                     mp = mp ^ (mp << 4);
@@ -348,7 +357,32 @@ const pext = struct {
 
                 return _value;
             },
-            u64 => @compileError("TODO: find/write branchless software impl of `PEXT` for 64-bit values"),
+            u64 => {
+                var _value: T = value;
+                var _mask: T = mask;
+
+                _value &= _mask;
+                var mk: T = ~_mask << 1;
+                var mp: T = undefined;
+                var mv: T = undefined;
+                var t: T = undefined;
+
+                inline for (0..@typeInfo(Log2Int(T)).Int.bits) |i| {
+                    mp = mk ^ (mk << 1); // parallel suffix
+                    mp = mp ^ (mp << 2);
+                    mp = mp ^ (mp << 4);
+                    mp = mp ^ (mp << 8);
+                    mp = mp ^ (mp << 16);
+                    mp = mp ^ (mp << 32);
+                    mv = (mp & _mask); // bits to move
+                    _mask = ((_mask ^ mv) | (mv >> (1 << i))); // compress _mask
+                    t = (_value & mv);
+                    _value = ((_value ^ t) | (t >> (1 << i))); // compress _value
+                    mk &= ~mp;
+                }
+
+                return _value;
+            },
             else => @compileError("pext is sunsupported for " ++ @typeName(T) ++ "."),
         };
     }
@@ -356,19 +390,25 @@ const pext = struct {
     test pext {
         const builtin = @import("builtin");
 
+        try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.hw(u32, 0x12345678, 0xFF00FFF0));
+        try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.hw(u64, 0x12345678, 0xFF00FFF0));
+
         switch (builtin.cpu.arch) {
             .x86_64 => if (std.Target.x86.featureSetHas(builtin.cpu.features, .bmi2)) {
-                try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.hw(u32, 0x12345678, 0xFF00FFF0));
-                try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.hw(u64, 0x12345678, 0xFF00FFF0));
-
-                // random tests
-                // TODO: when implemented, test 64-bit fallback `PEXT` as well
                 var rand_impl = std.rand.DefaultPrng.init(0xBAADF00D_DEADCAFE);
+
                 for (0..100) |_| {
                     const value = rand_impl.random().int(u32);
                     const mask = rand_impl.random().int(u32);
 
                     try std.testing.expectEqual(pext.hw(u32, value, mask), pext.sw(u32, value, mask));
+                }
+
+                for (0..100) |_| {
+                    const value = rand_impl.random().int(u64);
+                    const mask = rand_impl.random().int(u64);
+
+                    try std.testing.expectEqual(pext.hw(u64, value, mask), pext.sw(u64, value, mask));
                 }
             },
             else => return error.SkipZigTest,
