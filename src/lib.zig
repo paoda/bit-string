@@ -364,8 +364,8 @@ const pext = struct {
     test pext {
         const builtin = @import("builtin");
 
-        try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.hw(u32, 0x12345678, 0xFF00FFF0));
-        try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.hw(u64, 0x12345678, 0xFF00FFF0));
+        try std.testing.expectEqual(@as(u32, 0x0001_2567), pext.sw(u32, 0x12345678, 0xFF00FFF0));
+        try std.testing.expectEqual(@as(u64, 0x0001_2567), pext.sw(u64, 0x12345678, 0xFF00FFF0));
 
         switch (builtin.cpu.arch) {
             .x86_64 => if (std.Target.x86.featureSetHas(builtin.cpu.features, .bmi2)) {
