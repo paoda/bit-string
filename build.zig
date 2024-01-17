@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("bit-string", .{ .source_file = .{ .path = "src/lib.zig" } });
+    _ = b.addModule("bit-string", .{ .root_source_file = .{ .path = "src/lib.zig" } });
 
     const lib = b.addStaticLibrary(.{
         .name = "bit-string",
