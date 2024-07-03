@@ -287,7 +287,7 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
     };
 
     return @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &fields,
         .decls = &.{},
         .is_tuple = false,
@@ -327,7 +327,7 @@ const pext = struct {
     }
 
     inline fn sw(comptime T: type, value: T, mask: T) T {
-        // FIXME: will be replaced in the future by  https://github.com/ziglang/zig/issues/14995 (hopefully?)
+        // FIXME: will be replaced in the future by https://github.com/ziglang/zig/issues/14995 (hopefully?)
 
         return switch (T) {
             u32, u64 => {

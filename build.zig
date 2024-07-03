@@ -15,15 +15,19 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    _ = b.addModule("bit-string", .{ .root_source_file = .{ .path = "src/lib.zig" } });
-
     const lib = b.addStaticLibrary(.{
         .name = "bit-string",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/lib.zig" },
+        .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    const docs = b.addInstallDirectory(.{
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+        .source_dir = lib.getEmittedDocs(),
     });
 
     // This declares intent for the library to be installed into the standard
@@ -33,27 +37,20 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    const lib_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/test.zig" },
+    const lib_unit_tests = b.addTest(.{
+        .root_source_file = b.path("src/test.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const run_main_tests = b.addRunArtifact(lib_tests);
+    const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build test`
-    // This will evaluate the `test` step rather than the default, which is "install".
-    const test_step = b.step("test", "Run library tests");
-    test_step.dependOn(&run_main_tests.step);
+    // Similar to creating the run step earlier, this exposes a `test` step to
+    // the `zig build --help` menu, providing a way for the user to request
+    // running the unit tests.
+    const test_step = b.step("test", "Run unit tests");
+    test_step.dependOn(&run_lib_unit_tests.step);
 
-    // Build Documentation
-    const doc = b.addInstallDirectory(.{
-        .source_dir = lib.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "docs",
-    });
-
-    const doc_step = b.step("doc", "Generate documentation");
-    doc_step.dependOn(&doc.step);
+    const docs_step = b.step("docs", "Emit docs");
+    docs_step.dependOn(&docs.step);
 }
