@@ -52,7 +52,7 @@ pub fn match(comptime bit_string: []const u8, value: anytype) bool {
     comptime verify(ValT, bit_string);
 
     const masks: struct { ValT, ValT } = comptime blk: {
-        const bit_count = @typeInfo(ValT).Int.bits;
+        const bit_count = @typeInfo(ValT).int.bits;
 
         var set: ValT = 0;
         var clr: ValT = 0;
@@ -123,13 +123,13 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
 
     var ret: ReturnT = undefined;
 
-    inline for (@typeInfo(ReturnT).Struct.fields) |field| {
+    inline for (@typeInfo(ReturnT).@"struct".fields) |field| {
         @field(ret, field.name) = blk: {
             var masked_val: ValT = 0;
             var offset: usize = 0; // FIXME(URGENT): this whole block should be happening at comptime...
 
             for (bit_string, 0..) |char, i| {
-                const rev = @typeInfo(ValT).Int.bits - 1 - (i - offset);
+                const rev = @typeInfo(ValT).int.bits - 1 - (i - offset);
 
                 switch (char) {
                     '_' => offset += 1,
@@ -139,7 +139,7 @@ pub fn extract(comptime bit_string: []const u8, value: anytype) Bitfield(bit_str
                 }
             }
 
-            const PextT = if (@typeInfo(ValT).Int.bits > 32) u64 else u32;
+            const PextT = if (@typeInfo(ValT).int.bits > 32) u64 else u32;
             const use_hw = bmi2 and !@inComptime();
 
             break :blk @truncate(if (use_hw) pext.hw(PextT, value, masked_val) else pext.sw(PextT, value, masked_val));
@@ -197,19 +197,19 @@ test extract {
         const ret = extract("--------", @as(u8, 0b00000000));
         const T = @TypeOf(ret);
 
-        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).@"struct".fields.len);
     }
     {
         const ret = extract("00000000", @as(u8, 0b00000000));
         const T = @TypeOf(ret);
 
-        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).@"struct".fields.len);
     }
     {
         const ret = extract("0-0-0-0-", @as(u8, 0b01010101));
         const T = @TypeOf(ret);
 
-        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).Struct.fields.len);
+        try std.testing.expectEqual(@as(usize, 0), @typeInfo(T).@"struct".fields.len);
     }
 
     {
@@ -272,12 +272,12 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
         }
 
         for (things, &tmp) |th, *field| {
-            const FieldInt = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = th.bits } });
+            const FieldInt = @Type(.{ .int = .{ .signedness = .unsigned, .bits = th.bits } });
 
             field.* = .{
                 .name = &.{th.char.?},
                 .type = FieldInt,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = false,
                 .alignment = @alignOf(FieldInt),
             };
@@ -286,7 +286,7 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
         break :blk tmp;
     };
 
-    return @Type(.{ .Struct = .{
+    return @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &fields,
         .decls = &.{},
@@ -297,16 +297,16 @@ pub fn Bitfield(comptime bit_string: []const u8) type {
 fn verify(comptime T: type, comptime bit_string: []const u8) void {
     const info = @typeInfo(T);
 
-    std.debug.assert(info != .ComptimeInt);
-    std.debug.assert(info.Int.signedness == .unsigned);
-    std.debug.assert(info.Int.bits <= 64); // x86 PEXT u32 and u64 operands only
+    std.debug.assert(info != .comptime_int);
+    std.debug.assert(info.int.signedness == .unsigned);
+    std.debug.assert(info.int.bits <= 64); // x86 PEXT u32 and u64 operands only
 
     var underscore_count = 0;
     for (bit_string) |c| {
         if (c == '_') underscore_count += 1;
     }
 
-    std.debug.assert((bit_string.len - underscore_count) == info.Int.bits);
+    std.debug.assert((bit_string.len - underscore_count) == info.int.bits);
 }
 
 const pext = struct {
@@ -333,7 +333,7 @@ const pext = struct {
             u32, u64 => {
                 // code source: https://stackoverflow.com/questions/41720249/detecting-matching-bits-in-c
                 // TODO: rewrite more in generic/idiomatic zig
-                const log2_bits = @typeInfo(Log2Int(T)).Int.bits;
+                const log2_bits = @typeInfo(Log2Int(T)).int.bits;
 
                 var val: T = value & mask; // immediately clear irrelevant bits
                 var msk: T = mask;
@@ -369,7 +369,7 @@ const pext = struct {
 
         switch (builtin.cpu.arch) {
             .x86_64 => if (std.Target.x86.featureSetHas(builtin.cpu.features, .bmi2)) {
-                var rand_impl = std.rand.DefaultPrng.init(0xBAADF00D_DEADCAFE);
+                var rand_impl = std.Random.DefaultPrng.init(0xBAADF00D_DEADCAFE);
 
                 for (0..100) |_| {
                     const value = rand_impl.random().int(u32);
