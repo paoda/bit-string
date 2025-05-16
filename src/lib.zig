@@ -29,13 +29,13 @@
 //! }
 //! ```
 //! ## Syntax
-//! |  Token  |  Meaning  | Description
-//! | ------- | --------- | -----------
-//! | `0`     | Clear bit | In the equivalent position, the value's bit must be cleared.
-//! | `1`     | Set bit   | In the equivalent position, the value's bit must be set.
-//! | `a..=z` | Variable  | Given the 4-bit bit string, `"1aa0"`, the value `0b1010` would produce the variable `a` with the value `0b01`
-//! | `-`     | Ignored   | In the equivalent position, the value's bit does not matter.
-//! | `_`     | Ignored*  | Underscores are completely ignored during parsing, use to make bit strings easier to read e.g. `1111_1111`
+//! |  Token  |  Meaning  | Description                                                                                                   |
+//! | :-----: | --------- | ------------------------------------------------------------------------------------------------------------- |
+//! | `0`     | Clear bit | In the equivalent position, the value's bit must be cleared.                                                  |
+//! | `1`     | Set bit   | In the equivalent position, the value's bit must be set.                                                      |
+//! | `a..=z` | Variable  | Given the 4-bit bit string, `"1aa0"`, the value `0b1010` would produce the variable `a` with the value `0b01` |
+//! | `-`     | Ignored   | In the equivalent position, the value's bit does not matter.                                                  |
+//! | `_`     | Ignored*  | Underscores are completely ignored during parsing, use to make bit strings easier to read e.g. `1111_1111`    |
 //!
 //! ## Notes
 //! - This library does the majority of it's work at `comptime`. Due to this, you cannot create strings to match against at runtime.
